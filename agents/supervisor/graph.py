@@ -27,6 +27,7 @@
 
 import threading
 import time
+from pathlib import Path
 from typing import Literal
 
 from langgraph.graph import END, StateGraph
@@ -37,6 +38,10 @@ from agents.supervisor.state import SupervisorState
 # ── 폴링 주기 상수 (원본 시스템 그대로 유지) ──────────────────────────────
 DM_POLL_INTERVAL_SEC  = 5    # DataMigration: 5초
 SQL_POLL_INTERVAL_SEC = 5    # SqlPipeline  : 5초
+
+# ── 런타임 제어 파일 경로 ────────────────────────────────────────────────
+_RUNTIME_DIR = Path(__file__).resolve().parent.parent.parent / "runtime"
+PAUSE_FLAG   = _RUNTIME_DIR / "agent.pause"
 
 # ── 종료 신호 (signal handler → wait_node 감지) ─────────────────────────
 _stop_event = threading.Event()
@@ -155,11 +160,26 @@ def build_supervisor_graph(
         return {"agent_outcomes": outcomes}
 
     def wait_node(state: SupervisorState) -> dict:
-        """폴링 주기만큼 대기합니다."""
+        """폴링 주기만큼 대기. PAUSE_FLAG 파일이 있으면 재개 신호까지 무한 대기."""
+        # ── pause 진입 로그 (최초 1회) ──────────────────────────────────────
+        paused_logged = False
+        while PAUSE_FLAG.exists():
+            if _stop_event.is_set():
+                return {"cycle": state.get("cycle", 0) + 1}
+            if not paused_logged:
+                logger.info("[Supervisor] ⏸  일시정지 중... (runtime/agent.pause 파일 감지)")
+                paused_logged = True
+            time.sleep(0.5)
+        if paused_logged:
+            logger.info("[Supervisor] ▶  일시정지 해제, 재개합니다.")
+
+        # ── 일반 폴링 대기 ──────────────────────────────────────────────────
         elapsed = 0.0
         step    = 0.2
         while elapsed < DM_POLL_INTERVAL_SEC:
             if _stop_event.is_set():
+                break
+            if PAUSE_FLAG.exists():   # 대기 중 pause 요청 시 즉시 반응
                 break
             time.sleep(step)
             elapsed += step

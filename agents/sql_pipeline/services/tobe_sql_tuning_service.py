@@ -195,6 +195,44 @@ class TobeSqlTuningService:
         ).strip()
 
     def _load_catalog_rules(self) -> list[dict[str, Any]]:
+        try:
+            return self._load_from_db()
+        except Exception as exc:
+            logger.warning(
+                f"[TobeSqlTuningService] DB 룰 로드 실패, JSON fallback 사용 ({type(exc).__name__}: {exc})"
+            )
+            return self._load_from_json()
+
+    def _load_from_db(self) -> list[dict[str, Any]]:
+        import oracledb
+        from agents.sql_pipeline.services.db_runtime import get_connection
+
+        q = "SELECT RULE_ID, GUIDANCE, EXAMPLE_BAD_SQL, EXAMPLE_TUNED_SQL FROM NEXT_SQL_RULES ORDER BY CREATED_AT ASC"
+        result: list[dict[str, Any]] = []
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(q)
+            for row in cur.fetchall():
+                rule_id = str(row[0] or "").strip()
+                guidance_raw = str(row[1] or "").strip()
+                example_bad_sql = str(row[2] or "").strip() if row[2] else ""
+                example_tuned_sql = str(row[3] or "").strip() if row[3] else ""
+                if not rule_id or not example_bad_sql:
+                    continue
+                guidance = [g.strip() for g in guidance_raw.splitlines() if g.strip()]
+                result.append(
+                    {
+                        "rule_id": rule_id,
+                        "guidance": guidance,
+                        "example_bad_sql": example_bad_sql,
+                        "example_tuned_sql": example_tuned_sql,
+                        "normalized_bad_sql": self._normalize_sql_shape(example_bad_sql),
+                    }
+                )
+        logger.info(f"[TobeSqlTuningService] DB에서 룰 {len(result)}개 로드 완료")
+        return result
+
+    def _load_from_json(self) -> list[dict[str, Any]]:
         if not self.catalog_path.exists():
             logger.warning(f"[TobeSqlTuningService] rule catalog not found: {self.catalog_path}")
             return []

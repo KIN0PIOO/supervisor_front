@@ -27,6 +27,7 @@
 
 import sys
 import os
+import atexit
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -68,6 +69,25 @@ def startup_check():
         print(f"\nERROR: 점검 도중 예상치 못한 오류가 발생했습니다: {e}")
         sys.exit(1)
 
+_PID_FILE   = ROOT_DIR / "runtime" / "agent.pid"
+_PAUSE_FILE = ROOT_DIR / "runtime" / "agent.pause"
+
+
+def _write_pid():
+    _PID_FILE.parent.mkdir(exist_ok=True)
+    _PID_FILE.write_text(str(os.getpid()), encoding="utf-8")
+
+
+def _cleanup():
+    _PID_FILE.unlink(missing_ok=True)
+    _PAUSE_FILE.unlink(missing_ok=True)
+
+
 if __name__ == "__main__":
     startup_check()
-    SupervisorAgent().run()
+    _write_pid()
+    atexit.register(_cleanup)
+    try:
+        SupervisorAgent().run()
+    finally:
+        _cleanup()

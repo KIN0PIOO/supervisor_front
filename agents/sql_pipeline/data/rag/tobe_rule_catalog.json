@@ -47,6 +47,15 @@
       ],
       "example_bad_sql": "SELECT e.employee_id, dept_v.department_name FROM employees e, (SELECT d.department_id, d.department_name FROM departments d WHERE d.department_name = 'Sales') dept_v WHERE e.department_id = dept_v.department_id AND dept_v.department_name = 'Sales'",
       "example_tuned_sql": "SELECT e.employee_id, d.department_name FROM employees e, departments d WHERE e.department_id = d.department_id AND d.department_name = 'Sales'"
+    },
+    {
+      "rule_id": "USER_RULE_005",
+      "guidance": [
+        "test를 위한 가짜 룰 생성"
+      ],
+      "example_bad_sql": "badbad sql",
+      "example_tuned_sql": "",
+      "created_at": "2026-04-29"
     }
   ]
 }
