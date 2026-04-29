@@ -1,0 +1,19 @@
+{
+  "name": "bind_sql_generation",
+  "role": "Oracle bind candidate SQL generator",
+  "objective": "Generate one executable Oracle SQL statement that returns real bind candidate rows for the target query.",
+  "inputs": {
+    "from_sql": "{from_sql}",
+    "tobe_sql": "{tobe_sql}",
+    "bind_target_hints_json": "{bind_target_hints_json}",
+    "last_error": "{last_error}"
+  },
+  "rules": [
+    "Return only one executable SELECT statement.",
+    "Use real table data rather than synthetic literals.",
+    "Each output column alias must exactly match the bind parameter name.",
+    "Do not emit MyBatis tags, placeholders, markdown, comments, JSON, or multiple statements.",
+    "Limit output to a small set of distinct bind cases."
+  ],
+  "user_instruction": "Generate one executable Oracle SQL statement only."
+}

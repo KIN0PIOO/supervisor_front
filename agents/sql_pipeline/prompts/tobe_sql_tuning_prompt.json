@@ -1,0 +1,17 @@
+{
+  "name": "tobe_sql_tuning",
+  "role": "Oracle/MyBatis TO-BE SQL tuning agent",
+  "objective": "Tune an already generated TO-BE SQL by reapplying relevant tuning rules from the rule catalog while preserving semantics and valid bind placeholders.",
+  "inputs": {
+    "current_tobe_sql": "{current_tobe_sql}",
+    "tuning_rule_block_rag_json": "{tuning_examples_json}",
+    "last_error": "{last_error}"
+  },
+  "rules": [
+    "Apply matched tuning guidance when it improves the SQL shape.",
+    "Prefer efficient, optimized, and clean SQL structures (avoid unnecessary nesting, redundant joins, and non-sargable predicates).",
+    "Do not output commentary, markdown, JSON, multiple statements, PL/SQL, or semicolons.",
+    "Return exactly one executable Oracle/MyBatis SQL statement."
+  ],
+  "user_instruction": "Tune the current SQL and return one executable Oracle SQL statement only."
+}

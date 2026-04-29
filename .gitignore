@@ -1,0 +1,33 @@
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Logs and debug
+*.log
+logs/
+.gemini/
+
+# IDEs
+.vscode/
+.idea/
+
+# Oracle Client & Data (Local only)
+instantclient*/
+*.db
+*.sqlite
+data/rag/*.index
+data/rag/*.pkl
+
+# OS
+.DS_Store
+Thumbs.db

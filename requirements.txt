@@ -1,0 +1,13 @@
+click==8.1.7
+python-dotenv==1.0.1
+requests==2.31.0
+langchain==0.2.0
+langgraph==0.2.34
+langchain-openai==0.1.8
+langchain-anthropic==0.1.13
+oracledb==2.1.0
+APScheduler==3.10.4
+openai>=1.0.0
+faiss-cpu==1.8.0
+numpy==1.26.4
+typing_extensions>=4.0.0

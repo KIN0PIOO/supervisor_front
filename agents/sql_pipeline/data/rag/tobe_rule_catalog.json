@@ -1,0 +1,52 @@
+{
+  "rules": [
+    {
+      "rule_id": "RULE_VM001",
+      "guidance": [
+        "inline view가 단순 projection/join 용도라면 base table join으로 풀어서 view merging이 가능하게 만든다.",
+        "outer filter와 inner join predicate를 한 번에 재배치해 optimizer가 더 많은 access path를 검토하게 한다."
+      ],
+      "example_bad_sql": "SELECT e.first_name, e.last_name, dept_locs_v.street_address, dept_locs_v.postal_code FROM employee e, (SELECT d.department_id, d.department_name, l.street_address, l.postal_code FROM departments d, locations l WHERE d.location_id = l.location_id) dept_locs_v WHERE dept_locs_v.department_id = e.department_id AND e.last_name = 'Smith'",
+      "example_tuned_sql": "SELECT e.first_name, e.last_name, l.street_address, l.postal_code FROM employee e, departments d, locations l WHERE d.location_id = l.location_id AND d.department_id = e.department_id AND e.last_name = 'Smith'"
+    },
+    {
+      "rule_id": "RULE_VM004",
+      "guidance": [
+        "IN 서브쿼리가 단순 key filtering 용도라면 join으로 풀어 subquery unnesting이 가능하게 만든다.",
+        "중복 가능성이 있는 경우 DISTINCT 또는 EXISTS 전환 여부를 검토한다."
+      ],
+      "example_bad_sql": "SELECT * FROM sales WHERE cust_id IN (SELECT cust_id FROM customers)",
+      "example_tuned_sql": "SELECT sales.* FROM sales, customers WHERE sales.cust_id = customers.cust_id"
+    },
+    {
+      "rule_id": "RULE_JOIN001",
+      "guidance": [
+        "Oracle 전용 outer join 기호인 (+)를 ANSI LEFT OUTER JOIN 형태로 변환한다.",
+        "조인 조건을 WHERE 절에서 ON 절로 분리해 join 관계와 filter 조건을 명확히 구분한다.",
+        "(+)가 붙은 테이블은 optional side이므로 LEFT JOIN의 오른쪽 테이블로 배치한다."
+      ],
+      "example_bad_sql": "SELECT e.employee_id, e.first_name, d.department_name, l.city FROM employees e, departments d, locations l WHERE e.department_id = d.department_id AND d.location_id = l.location_id(+)",
+      "example_tuned_sql": "SELECT e.employee_id, e.first_name, d.department_name, l.city FROM employees e JOIN departments d ON e.department_id = d.department_id LEFT JOIN locations l ON d.location_id = l.location_id"
+    },
+    {
+      "rule_id": "RULE_JOIN002",
+      "guidance": [
+        "comma join과 INNER JOIN이 혼용된 SQL은 ANSI JOIN 형태로 통일한다.",
+        "테이블 간 조인 조건은 ON 절로 이동하고, 일반 필터 조건은 WHERE 절에 남긴다.",
+        "조인 방식이 섞여 있으면 가독성이 떨어지고 마이그레이션 과정에서 조인 의미가 왜곡될 수 있으므로 하나의 스타일로 정리한다."
+      ],
+      "example_bad_sql": "SELECT e.employee_id, e.first_name, j.job_title, d.department_name FROM employees e INNER JOIN jobs j ON e.job_id = j.job_id, departments d WHERE e.department_id = d.department_id AND d.department_name = 'Sales'",
+      "example_tuned_sql": "SELECT e.employee_id, e.first_name, j.job_title, d.department_name FROM employees e INNER JOIN jobs j ON e.job_id = j.job_id INNER JOIN departments d ON e.department_id = d.department_id WHERE d.department_name = 'Sales'"
+    },
+    {
+      "rule_id": "RULE_PRED001",
+      "guidance": [
+        "inline view 내부와 외부에 중복으로 존재하는 필터 조건은 하나의 위치로 정리한다.",
+        "단순 필터 조건은 가능한 base table에 가까운 위치로 이동해 불필요한 row 생성을 줄인다.",
+        "동일 컬럼에 대한 중복 조건은 의미가 같다면 제거하고, 의미가 다르면 더 제한적인 조건만 유지한다."
+      ],
+      "example_bad_sql": "SELECT e.employee_id, dept_v.department_name FROM employees e, (SELECT d.department_id, d.department_name FROM departments d WHERE d.department_name = 'Sales') dept_v WHERE e.department_id = dept_v.department_id AND dept_v.department_name = 'Sales'",
+      "example_tuned_sql": "SELECT e.employee_id, d.department_name FROM employees e, departments d WHERE e.department_id = d.department_id AND d.department_name = 'Sales'"
+    }
+  ]
+}
