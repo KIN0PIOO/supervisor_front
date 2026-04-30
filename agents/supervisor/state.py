@@ -32,3 +32,6 @@ class SupervisorState(TypedDict):
 
     # 에이전트 작업 결과 수집 (LangGraph 상태 변화 인지 목적)
     agent_outcomes: Annotated[List[str], operator.add]
+
+    # Planner 판단 근거 (모니터링/로깅용)
+    planner_reasoning: str

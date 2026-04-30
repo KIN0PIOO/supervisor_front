@@ -1,28 +1,18 @@
 """LangGraph Supervisor 그래프.
 
-올바른 멀티 에이전트 Supervisor 패턴:
-  - 각 서브 에이전트는 Supervisor 가 Send 로 호출하는 노드(tool)다.
-  - 스레드를 사용하지 않는다.
-  - 폴링 주기와 라우팅은 모두 LangGraph state machine 이 담당한다.
-
-그래프 흐름:
+그래프 흐름 (Planner 추가):
   START
-    → supervisor_node   : DB 폴링, 대기 작업 수집, 종료 감지
+    → supervisor_node  : DB 폴링, 전체 대기 작업 수집
+    → planner_node     : LLM이 이번 사이클에 실행할 작업 동적 선택
+                         (PLANNER_ENABLED=false 시 전체 작업 통과)
     → [조건부]
-        jobs 있음  → dispatch_node : Send 로 각 작업을 에이전트 노드에 fan-out
-        jobs 없음  → wait_node
-        stop       → END
-    dispatch_node
-      → Send("data_migration_agent", {job})  ─┐
-      → Send("sql_pipeline_agent",  {job})   ─┤ 병렬 실행 후 state 병합
-      → (모든 Send 완료 후) → wait_node      ─┘
-    wait_node → supervisor_node  (루프)
-              → END              (stop 감지 시)
+        jobs 있음 → Send() 로 에이전트 fan-out (내부 로직 완전 불변)
+        jobs 없음 → wait_node
+        stop      → END
+    wait_node → supervisor_node (루프)
 
-중요:
-  data_migration_agent / sql_pipeline_agent 는 outgoing edge 불필요.
-  Send 로 호출된 노드는 실행 후 결과를 state 에 병합하고 종료.
-  dispatch_node 의 edge(→ wait) 가 fan-out 완료 후 경로를 결정한다.
+Stage 1 (유연): supervisor_node + planner_node — 어떤 작업 실행할지 LLM 판단
+Stage 2 (안정): 각 에이전트 내부 워크플로우 — 절대 변경 없음
 """
 
 import threading
@@ -34,6 +24,8 @@ from langgraph.graph import END, StateGraph
 from langgraph.types import Send
 
 from agents.supervisor.state import SupervisorState
+from agents.planner.agent import PlannerAgent
+from config.settings import PLANNER_ENABLED
 
 # ── 폴링 주기 상수 (원본 시스템 그대로 유지) ──────────────────────────────
 DM_POLL_INTERVAL_SEC  = 5    # DataMigration: 5초
@@ -106,12 +98,39 @@ def build_supervisor_graph(
             logger.info("[Supervisor] 대기 중인 작업 없음")
 
         return {
-            "pending_mig_jobs":  mig_jobs,
-            "pending_sql_jobs":  sql_jobs,
+            "pending_mig_jobs":    mig_jobs,
+            "pending_sql_jobs":    sql_jobs,
             "pending_tuning_jobs": tuning_jobs,
-            "last_sql_poll_at":  now if poll_sql else last_sql,
-            "stop_requested":    False,
-            "agent_outcomes":    [],
+            "last_sql_poll_at":    now if poll_sql else last_sql,
+            "stop_requested":      False,
+            "agent_outcomes":      [],
+            "planner_reasoning":   "",
+        }
+
+    # ── Planner Node (Stage 1: 동적 작업 선택) ─────────────────────────────
+    _planner = PlannerAgent()
+
+    def planner_node(state: SupervisorState) -> dict:
+        """LLM이 이번 사이클에 실행할 작업을 동적으로 선택한다.
+        PLANNER_ENABLED=false 이면 폴링된 작업 전체를 그대로 통과시킨다.
+        LLM 호출 실패 시 전체 실행으로 자동 폴백한다."""
+        mig_jobs    = state.get("pending_mig_jobs",    [])
+        sql_jobs    = state.get("pending_sql_jobs",    [])
+        tuning_jobs = state.get("pending_tuning_jobs", [])
+
+        if not PLANNER_ENABLED:
+            logger.debug("[Planner] PLANNER_ENABLED=false → 전체 작업 통과")
+            return {}   # 상태 변경 없음
+
+        if not mig_jobs and not sql_jobs and not tuning_jobs:
+            return {}
+
+        decision = _planner.plan(mig_jobs, sql_jobs, tuning_jobs)
+        return {
+            "pending_mig_jobs":    decision.mig_jobs,
+            "pending_sql_jobs":    decision.sql_jobs,
+            "pending_tuning_jobs": decision.tuning_jobs,
+            "planner_reasoning":   decision.reasoning,
         }
 
     def data_migration_agent(state: dict) -> dict:
@@ -223,10 +242,13 @@ def build_supervisor_graph(
         return "supervisor"
 
     # ── 그래프 조립 ────────────────────────────────────────────────────────
-
+    #
+    #  supervisor → planner → [conditional] → agents (fan-out) → wait → supervisor
+    #
     workflow = StateGraph(SupervisorState)
 
     workflow.add_node("supervisor",           supervisor_node)
+    workflow.add_node("planner",              planner_node)        # ← NEW
     workflow.add_node("data_migration_agent", data_migration_agent)
     workflow.add_node("sql_conversion_agent", sql_conversion_agent)
     workflow.add_node("sql_tuning_agent",     sql_tuning_agent)
@@ -234,15 +256,19 @@ def build_supervisor_graph(
 
     workflow.set_entry_point("supervisor")
 
+    # supervisor → planner (항상)
+    workflow.add_edge("supervisor", "planner")
+
+    # planner → 조건부 분기 (기존 supervisor 조건부 엣지와 동일)
     workflow.add_conditional_edges(
-        "supervisor",
-        route_after_supervisor,
+        "planner",
+        route_after_supervisor,          # planner가 갱신한 state 기준으로 라우팅
         {
             "data_migration_agent": "data_migration_agent",
             "sql_conversion_agent": "sql_conversion_agent",
             "sql_tuning_agent":     "sql_tuning_agent",
             "wait":                 "wait",
-            END:                    END
+            END:                    END,
         }
     )
 
